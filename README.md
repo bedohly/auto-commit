@@ -1,5 +1,9 @@
 # autocommit
 
+[![tests](https://github.com/Bedohly/auto-commit/actions/workflows/ci.yml/badge.svg)](https://github.com/Bedohly/auto-commit/actions/workflows/ci.yml)
+![python](https://img.shields.io/badge/python-3.8%2B-blue)
+![platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macos%20%7C%20windows-lightgrey)
+
 Create randomized, backdated commits in a GitHub repository you own — on a
 schedule, on Linux, macOS and Windows.
 
@@ -189,7 +193,7 @@ folder, so a large repository does not cost you a full history download.
 python -m unittest discover -s tests -t . -v
 ```
 
-61 tests covering the planner, config, token handling, the GitHub client, the
+62 tests covering the planner, config, token handling, the GitHub client, the
 schedulers, and a full end-to-end run — commit, push, re-clone and re-sync —
 against a local bare repository. Nothing in the suite talks to github.com. CI
 runs the same suite on Ubuntu, Windows and macOS.
