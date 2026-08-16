@@ -34,6 +34,13 @@ def bare_log(bare: Path, branch: str = "main"):
     return [tuple(line.split("|", 3)) for line in lines]
 
 
+def parse_git_date(value: str) -> datetime:
+    """Parse git's %aI. Python 3.9 cannot read the 'Z' suffix git emits in UTC."""
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    return datetime.fromisoformat(value)
+
+
 def show_file(bare: Path, branch: str, path: str) -> str:
     result = subprocess.run(
         ["git", "--git-dir", str(bare), "show", "{0}:{1}".format(branch, path)],
@@ -103,7 +110,7 @@ class GitEndToEndTests(unittest.TestCase):
         pushed = list(reversed(bare_log(self.bare)))  # git log is newest first
         self.assertEqual(len(pushed), len(plan))
         for planned, (_, _, iso, subject) in zip(plan, pushed):
-            recorded = datetime.fromisoformat(iso).replace(tzinfo=None)
+            recorded = parse_git_date(iso).replace(tzinfo=None)
             self.assertEqual(recorded, planned.when)
             self.assertEqual(subject, planned.message)
 
