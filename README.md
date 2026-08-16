@@ -1,8 +1,7 @@
 <p align="center">
-  <img src="assets/banner.webp" alt="auto commit" width="100%">
+  <img src="assets/banner.webp" width="100%"
+       alt="GitHub Activity Bot - automates daily commits to keep your GitHub activity graph active. A before-and-after of a contribution graph: empty on the left, filled in on the right.">
 </p>
-
-<h1 align="center">GitHub Activity Bot</h1>
 
 <p align="center">Keeps your GitHub contribution graph green, automatically, on Linux, macOS and Windows.</p>
 
