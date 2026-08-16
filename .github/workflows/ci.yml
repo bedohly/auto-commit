@@ -48,6 +48,31 @@ jobs:
           autocommit status
           autocommit config --show
 
+      - name: Smoke test the console
+        shell: bash
+        run: |
+          cat > session.txt <<'EOF'
+          /help
+          /status
+          /config
+          /log
+          /set max_commits 4
+          /quit
+          EOF
+          autocommit console < session.txt | tee console.out
+          grep -q "AUTOCOMMIT" console.out
+          grep -q "/unschedule" console.out
+          grep -q "max_commits = 4" console.out
+
+      - name: Console falls back to ASCII on demand
+        shell: bash
+        env:
+          AUTOCOMMIT_ASCII: "1"
+        run: |
+          printf '%s\n' /status /quit > ascii.txt
+          autocommit console < ascii.txt | tee ascii.out
+          grep -q '+---' ascii.out
+
   lint:
     name: syntax check
     runs-on: ubuntu-latest
