@@ -12,7 +12,8 @@ import difflib
 import shlex
 from datetime import date, timedelta
 
-from autocommit import __version__, auth, cli, config, paths, runner, schedule, ui
+from autocommit import (__version__, auth, cli, config, paths, profiles, runner,
+                        schedule, ui)
 from autocommit.github import GitHubClient, GitHubError
 from autocommit.gitrepo import GitError, git_version
 
@@ -83,6 +84,9 @@ def render_status(token: str = "") -> None:
         "ok" if settings.author_email else "warn")
 
     mid = ui.glyphs()["mid"]
+    current = profiles.describe(settings)
+    ui.field("profile", "{0}  {1}".format(
+        current, ui.paint(cli.ramp_line(settings), "grey")), "ok")
     ui.field("cadence", "{0}-{1} commits/day {2} weekdays {3:.0%} {2} weekends {4:.0%}".format(
         settings.min_commits, settings.max_commits, mid,
         settings.weekday_active_chance, settings.weekend_active_chance))
@@ -104,6 +108,69 @@ def render_status(token: str = "") -> None:
         ui.field("last run", last, "ok")
     else:
         ui.field("last run", "never")
+
+
+def run_checks(token: str = "") -> None:
+    """The live verification pass, shared by /check and `autocommit check`."""
+    settings = config.load()
+    ui.box_title("CHECKS")
+
+    try:
+        ui.bullet("git " + git_version().replace("git version ", ""), "ok")
+    except GitError as exc:
+        ui.bullet(str(exc), "bad")
+
+    info = auth.resolve(token)
+    if not info:
+        ui.bullet("Not signed in. Run: autocommit login", "bad")
+        return
+    client = GitHubClient(info.value)
+    try:
+        user = client.whoami()
+    except GitHubError as exc:
+        ui.bullet(str(exc), "bad")
+        return
+    ui.bullet("Token valid, signed in as {0} (from {1}).".format(user.login, info.source), "ok")
+
+    scopes = client.token_scopes()
+    if auth.missing_scope(scopes):
+        ui.bullet("Token scopes [{0}] cannot push.".format(", ".join(scopes)), "bad")
+    elif scopes:
+        ui.bullet("Token scopes: {0}.".format(", ".join(scopes)), "ok")
+    else:
+        ui.bullet("Fine-grained token: make sure it grants Contents: Read and write.", "warn")
+
+    if not settings.repo.is_set():
+        ui.bullet("No repository selected. Run: autocommit select", "bad")
+        return
+    try:
+        repo = client.get_repo(settings.repo.owner, settings.repo.name)
+    except GitHubError as exc:
+        ui.bullet(str(exc), "bad")
+        return
+
+    ui.bullet("Repository {0} is reachable.".format(repo.full_name), "ok")
+    ui.bullet("Push access." if repo.can_push else "No push access to this repository.",
+              "ok" if repo.can_push else "bad")
+    if repo.fork:
+        ui.bullet("This repository is a fork; commits in forks never count.", "bad")
+    else:
+        ui.bullet("Not a fork.", "ok")
+    if repo.default_branch != settings.repo.branch:
+        ui.bullet("Configured branch '{0}' is not the default branch '{1}'; "
+                  "only the default branch counts.".format(
+                      settings.repo.branch, repo.default_branch), "warn")
+    else:
+        ui.bullet("Committing to the default branch '{0}'.".format(repo.default_branch), "ok")
+    if repo.private:
+        ui.bullet("Private repository: enable 'Include private contributions on my "
+                  "profile' in your GitHub profile settings.", "warn")
+
+    if settings.author_email == user.noreply_email:
+        ui.bullet("Author email is your GitHub noreply address; it always counts.", "ok")
+    else:
+        ui.bullet("Author email {0} must be listed under Settings > Emails to count.".format(
+            settings.author_email or "(unset)"), "warn")
 
 
 class Console:
@@ -141,6 +208,8 @@ class Console:
                        self.cmd_select, ("use",))
         self._register("new", "Create a repository and select it.",
                        "/new <name> [--public]", self.cmd_new)
+        self._register("profile", "Apply a ready-made settings profile.",
+                       "/profile [name]", self.cmd_profile)
         self._register("config", "Show every setting.", "/config", self.cmd_config,
                        ("settings",))
         self._register("set", "Change one setting.", "/set <key> <value>", self.cmd_set)
@@ -259,65 +328,7 @@ class Console:
         render_status(self.token)
 
     def cmd_check(self, args):
-        settings = config.load()
-        ui.box_title("CHECKS")
-
-        try:
-            ui.bullet("git " + git_version().replace("git version ", ""), "ok")
-        except GitError as exc:
-            ui.bullet(str(exc), "bad")
-
-        info = auth.resolve(self.token)
-        if not info:
-            ui.bullet("No token. Run /login.", "bad")
-            return
-        client = GitHubClient(info.value)
-        try:
-            user = client.whoami()
-        except GitHubError as exc:
-            ui.bullet(str(exc), "bad")
-            return
-        ui.bullet("Token valid, signed in as {0} (from {1}).".format(user.login, info.source), "ok")
-
-        scopes = client.token_scopes()
-        if auth.missing_scope(scopes):
-            ui.bullet("Token scopes [{0}] cannot push.".format(", ".join(scopes)), "bad")
-        elif scopes:
-            ui.bullet("Token scopes: {0}.".format(", ".join(scopes)), "ok")
-        else:
-            ui.bullet("Fine-grained token: make sure it grants Contents: Read and write.", "warn")
-
-        if not settings.repo.is_set():
-            ui.bullet("No repository selected. Run /select.", "bad")
-            return
-        try:
-            repo = client.get_repo(settings.repo.owner, settings.repo.name)
-        except GitHubError as exc:
-            ui.bullet(str(exc), "bad")
-            return
-
-        ui.bullet("Repository {0} is reachable.".format(repo.full_name), "ok")
-        ui.bullet("Push access." if repo.can_push else "No push access to this repository.",
-                  "ok" if repo.can_push else "bad")
-        if repo.fork:
-            ui.bullet("This repository is a fork; commits in forks never count.", "bad")
-        else:
-            ui.bullet("Not a fork.", "ok")
-        if repo.default_branch != settings.repo.branch:
-            ui.bullet("Configured branch '{0}' is not the default branch '{1}'; "
-                      "only the default branch counts.".format(
-                          settings.repo.branch, repo.default_branch), "warn")
-        else:
-            ui.bullet("Committing to the default branch '{0}'.".format(repo.default_branch), "ok")
-        if repo.private:
-            ui.bullet("Private repository: enable 'Include private contributions on my "
-                      "profile' in your GitHub profile settings.", "warn")
-
-        if settings.author_email == user.noreply_email:
-            ui.bullet("Author email is your GitHub noreply address; it always counts.", "ok")
-        else:
-            ui.bullet("Author email {0} must be listed under Settings > Emails to count.".format(
-                settings.author_email or "(unset)"), "warn")
+        run_checks(self.token)
 
     def cmd_setup(self, args):
         ui.box_title("SETUP", "step 1 of 4")
@@ -338,7 +349,9 @@ class Console:
             self.cmd_select([])
 
         ui.box_title("SETUP", "step 3 of 4")
-        cli.cmd_config(_ns(show=False))
+        ui.say("How busy should the graph look?")
+        self.cmd_profile([])
+        ui.hint("Fine-tune any single value later with /set <key> <value>.")
 
         ui.box_title("SETUP", "step 4 of 4")
         if ui.confirm("Install a daily scheduled run?", default=True):
@@ -367,6 +380,20 @@ class Console:
         name = args[0]
         cli.cmd_select(_ns(token=self.token, repository="", create=name,
                            public="--public" in args))
+
+    def cmd_profile(self, args):
+        if args:
+            cli.cmd_profile(_ns(name=args[0]))
+            return
+        cli.cmd_profile(_ns(name=""))
+        if not ui.is_interactive():
+            return
+        labels = ["{0} - {1}".format(profile.name, profile.summary)
+                  for profile in profiles.PROFILES]
+        index = ui.choose("Apply which profile?", labels)
+        if index is None:
+            return
+        cli.cmd_profile(_ns(name=profiles.PROFILES[index].name))
 
     def cmd_config(self, args):
         cli.cmd_config(_ns(show=True))

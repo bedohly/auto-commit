@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
@@ -39,15 +40,24 @@ class Settings:
     author_email: str = ""
     repo: RepoTarget = field(default_factory=RepoTarget)
 
+    # These defaults are the 'starter' profile: the quietest one, ramping up
+    # over its first month. See autocommit/profiles.py.
     commit_file: str = DEFAULT_COMMIT_FILE
     min_commits: int = 1
-    max_commits: int = 6
-    weekday_active_chance: float = 0.85
-    weekend_active_chance: float = 0.45
-    active_hour_start: int = 9
-    active_hour_end: int = 23
+    max_commits: int = 2
+    weekday_active_chance: float = 0.45
+    weekend_active_chance: float = 0.15
+    active_hour_start: int = 10
+    active_hour_end: int = 22
     message_style: str = "mixed"  # casual | conventional | mixed
     jitter_minutes: int = 0
+
+    # Which preset was applied, and the ramp it starts from. During the first
+    # `ramp_days` days after `started_on` the rate grows from almost nothing to
+    # the configured one, instead of switching on at full volume.
+    profile: str = "starter"
+    ramp_days: int = 30
+    started_on: str = ""
 
     # Issue / pull request / review automation. Off by default: unlike commits,
     # these cannot be backdated and they are visible to anyone browsing the repo.
@@ -84,6 +94,15 @@ class Settings:
             raise ValueError("message_style must be casual, conventional or mixed")
         if self.jitter_minutes < 0:
             raise ValueError("jitter_minutes cannot be negative")
+        if self.ramp_days < 0:
+            raise ValueError("ramp_days cannot be negative")
+        if self.ramp_days > 3650:
+            raise ValueError("ramp_days must be 3650 or lower")
+        if self.started_on:
+            try:
+                datetime.strptime(self.started_on, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError("started_on must look like YYYY-MM-DD")
         for low, high in (("issues_min", "issues_max"),
                           ("pulls_min", "pulls_max"),
                           ("pull_commits_min", "pull_commits_max")):
@@ -132,6 +151,7 @@ EDITABLE = (
     "author_name",
     "author_email",
     "jitter_minutes",
+    "ramp_days",
     "activity_enabled",
     "activity_chance",
     "issues_min",

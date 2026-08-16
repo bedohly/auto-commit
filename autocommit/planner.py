@@ -41,12 +41,49 @@ def is_weekend(day: date) -> bool:
     return day.weekday() >= SATURDAY
 
 
+RAMP_FLOOR = 0.35
+
+
+def ramp_factor(day: date, settings: Settings) -> float:
+    """How far into its ramp a day sits, from 0.0 on day one to 1.0 at the end.
+
+    Returns 1.0 when no ramp is configured, which is the case for every
+    hand-tuned setup and for profiles that do not use one.
+    """
+    if settings.ramp_days <= 0 or not settings.started_on:
+        return 1.0
+    try:
+        start = datetime.strptime(settings.started_on, "%Y-%m-%d").date()
+    except ValueError:
+        return 1.0
+    elapsed = (day - start).days
+    if elapsed <= 0:
+        return 0.0
+    return min(1.0, float(elapsed) / settings.ramp_days)
+
+
+def effective_limits(day: date, settings: Settings):
+    """(max commits, weekday chance, weekend chance) for one day of the ramp."""
+    factor = ramp_factor(day, settings)
+    if factor >= 1.0:
+        return (settings.max_commits,
+                settings.weekday_active_chance,
+                settings.weekend_active_chance)
+    span = settings.max_commits - settings.min_commits
+    top = settings.min_commits + int(round(span * factor))
+    scale = RAMP_FLOOR + (1.0 - RAMP_FLOOR) * factor
+    return (max(settings.min_commits, top),
+            settings.weekday_active_chance * scale,
+            settings.weekend_active_chance * scale)
+
+
 def commits_for_day(day: date, settings: Settings, rng: random.Random) -> int:
     """Decide how many commits a single day gets (0 means a rest day)."""
-    chance = settings.weekend_active_chance if is_weekend(day) else settings.weekday_active_chance
+    high, weekday_chance, weekend_chance = effective_limits(day, settings)
+    chance = weekend_chance if is_weekend(day) else weekday_chance
     if rng.random() >= chance:
         return 0
-    low, high = settings.min_commits, settings.max_commits
+    low = settings.min_commits
     if high <= low:
         return low
     # Triangular keeps most days near the low end, which looks far more

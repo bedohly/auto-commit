@@ -9,8 +9,8 @@ import sys
 import time
 from datetime import date, datetime, timedelta
 
-from autocommit import (__version__, activity, auth, config, paths, planner, runner,
-                        schedule, ui)
+from autocommit import (__version__, activity, auth, config, paths, planner, profiles,
+                        runner, schedule, ui)
 from autocommit.config import Settings
 from autocommit.github import GitHubClient, GitHubError
 from autocommit.gitrepo import GitError, git_version
@@ -153,6 +153,13 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_check(args) -> int:
+    from autocommit import console  # imported late: console imports cli
+
+    console.run_checks(args.token)
+    return 0
+
+
 def cmd_repos(args) -> int:
     client, _ = _client(args.token)
     repos = client.list_repos()
@@ -183,6 +190,8 @@ def _adopt_repo(settings: Settings, repo, client: GitHubClient) -> None:
     settings.repo.name = repo.name
     settings.repo.branch = repo.default_branch
     settings.repo.private = repo.private
+    if not settings.started_on:
+        settings.started_on = date.today().isoformat()
     _apply_identity(settings, client)
     config.save(settings)
     ui.ok("Target repository: {0} (branch {1})".format(
@@ -293,6 +302,61 @@ def cmd_config(args) -> int:
     except ValueError as exc:
         raise CliError(str(exc))
     ui.ok("Settings saved to {0}".format(paths.config_file()))
+    return 0
+
+
+def ramp_line(settings: Settings, today: "date | None" = None) -> str:
+    """Human wording for where the ramp has got to."""
+    if settings.ramp_days <= 0 or not settings.started_on:
+        return "full rate"
+    today = today or date.today()
+    factor = planner.ramp_factor(today, settings)
+    if factor >= 1.0:
+        return "full rate"
+    try:
+        start = _parse_day(settings.started_on)
+    except CliError:
+        return "full rate"
+    elapsed = max(0, (today - start).days)
+    return "warming up, day {0} of {1} ({2:.0%})".format(
+        elapsed, settings.ramp_days, factor)
+
+
+def cmd_profile(args) -> int:
+    settings = config.load()
+
+    if not args.name:
+        current = profiles.describe(settings)
+        ui.box_title("PROFILES", "current: " + current)
+        for profile in profiles.PROFILES:
+            marker = ui.dot("ok") if profile.name == current else " "
+            print("  {0} {1}  {2}".format(
+                marker, ui.paint(profile.name.ljust(8), "cyan", "bold"), profile.summary))
+            ui.hint(profile.rate_line())
+            if profile.values.get("ramp_days"):
+                ui.hint("grows into that rate over {0} days".format(
+                    profile.values["ramp_days"]))
+            if profile.values.get("activity_enabled"):
+                ui.hint("also opens issues and pull requests")
+        ui.say()
+        ui.info("Apply one with: autocommit profile <name>")
+        if settings.ramp_days and settings.started_on:
+            ui.info("Right now: {0}".format(ramp_line(settings)))
+        return 0
+
+    try:
+        profiles.apply(settings, args.name)
+    except ValueError as exc:
+        raise CliError(str(exc))
+    config.save(settings)
+
+    profile = profiles.get(args.name)
+    ui.ok("Profile '{0}' applied.".format(profile.name))
+    ui.hint(profile.detail)
+    ui.info(profile.rate_line())
+    if settings.ramp_days:
+        ui.info("Starting quiet and reaching that rate on {0}.".format(
+            (date.today() + timedelta(days=settings.ramp_days)).isoformat()))
     return 0
 
 
@@ -549,6 +613,10 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="show the current configuration and health checks")
     status.set_defaults(func=cmd_status)
 
+    check = sub.add_parser("check",
+                           help="verify the things that decide whether commits count")
+    check.set_defaults(func=cmd_check)
+
     repos = sub.add_parser("repos", help="list repositories you can push to")
     repos.set_defaults(func=cmd_repos)
 
@@ -559,6 +627,11 @@ def build_parser() -> argparse.ArgumentParser:
     select.add_argument("--public", action="store_true",
                         help="make the created repository public")
     select.set_defaults(func=cmd_select)
+
+    prof = sub.add_parser("profile", help="apply a ready-made settings profile")
+    prof.add_argument("name", nargs="?", default="",
+                      help="one of: " + ", ".join(profiles.NAMES))
+    prof.set_defaults(func=cmd_profile)
 
     cfg = sub.add_parser("config", help="view or edit settings")
     cfg.add_argument("--show", action="store_true", help="print settings and exit")

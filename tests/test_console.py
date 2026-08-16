@@ -259,10 +259,11 @@ class SettingsCommandTests(TempHome):
         self.assertAlmostEqual(config.load().weekend_active_chance, 0.2)
 
     def test_set_rejects_a_bad_value_and_keeps_the_old_one(self):
+        before = config.load().max_commits
         with captured() as out:
             self.console.execute("/set max_commits banana")
         self.assertIn("whole number", out.getvalue())
-        self.assertEqual(config.load().max_commits, 6)
+        self.assertEqual(config.load().max_commits, before)
 
     def test_set_rolls_back_when_validation_fails(self):
         with captured() as out:
