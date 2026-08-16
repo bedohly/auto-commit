@@ -64,6 +64,27 @@ jobs:
           grep -q "/unschedule" console.out
           grep -q "max_commits = 4" console.out
 
+      - name: Activity dry run plans but creates nothing
+        shell: bash
+        run: |
+          python - <<'EOF'
+          from autocommit import config
+          from autocommit.config import RepoTarget, Settings
+
+          config.save(Settings(
+              account="ci-sandbox",
+              author_name="CI",
+              author_email="ci@example.invalid",
+              repo=RepoTarget(owner="ci-sandbox", name="never-touched", branch="main"),
+              activity_enabled=True, activity_chance=1.0,
+              issues_min=1, issues_max=1, pulls_min=1, pulls_max=1,
+          ))
+          EOF
+          autocommit activity --dry-run --seed 1 | tee activity.out
+          grep -q "Dry run" activity.out
+          grep -q "pull request" activity.out
+          autocommit status | grep -q "activity"
+
       - name: Console falls back to ASCII on demand
         shell: bash
         env:

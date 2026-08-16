@@ -1,8 +1,23 @@
-# autocommit
+<p align="center">
+  <img src="assets/banner.webp" alt="auto commit" width="100%">
+</p>
 
-[![tests](https://github.com/Bedohly/auto-commit/actions/workflows/ci.yml/badge.svg)](https://github.com/Bedohly/auto-commit/actions/workflows/ci.yml)
-![python](https://img.shields.io/badge/python-3.8%2B-blue)
-![platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macos%20%7C%20windows-lightgrey)
+<h1 align="center">autocommit</h1>
+
+<p align="center">
+  <a href="https://github.com/Bedohly/auto-commit/actions/workflows/ci.yml"><img src="https://github.com/Bedohly/auto-commit/actions/workflows/ci.yml/badge.svg" alt="tests"></a>
+  <img src="https://img.shields.io/badge/python-3.8%2B-blue" alt="python 3.8+">
+  <img src="https://img.shields.io/badge/platforms-linux%20%7C%20macos%20%7C%20windows-lightgrey" alt="platforms">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license">
+</p>
+
+> **Built to teach, not to impress anyone.** This project exists to show how the
+> GitHub API, git plumbing, backdated commits and cross-platform schedulers fit
+> together. It inflates your own contribution graph with activity that is not
+> real work, and anyone who opens a green square will see exactly that. Use it
+> at your own risk: you are responsible for what it does to your account, and
+> for staying inside [GitHub's Acceptable Use Policies](https://docs.github.com/site-policy/acceptable-use-policies/github-acceptable-use-policies).
+> Point it at a repository you own and nothing else.
 
 Create randomized, backdated commits in a GitHub repository you own — on a
 schedule, on Linux, macOS and Windows.
@@ -28,6 +43,8 @@ so the result is not a perfectly uniform block of green.
 autocommit ›
 ```
 
+- **More than commits.** Optionally opens issues and pull requests, reviews
+  them and merges them — all in a repository you own, never anyone else's.
 - **A console, not just flags.** Slash commands with a live status panel,
   tab completion and history — or plain subcommands when you are scripting.
 - **No dependencies.** Python standard library only.
@@ -124,6 +141,7 @@ what is configured.
 | `/config` · `/set <key> <value>` | Show settings, change one. |
 | `/plan [days]` | Preview a plan without committing. |
 | `/run [days]` | Create the commits and push. |
+| `/activity [dry]` | Open issues and pull requests, review and merge them. |
 | `/schedule [HH:MM] [jitter]` · `/unschedule` | Manage the daily run. |
 | `/log [count]` | Recent runs. |
 | `/clear` · `/quit` | Redraw, or leave. |
@@ -149,6 +167,7 @@ represent it, and colors switch off when the output is piped. Set
 | `autocommit select [owner/repo]` | Choose the target. `--create NAME` makes a new one (`--public` to make it public). |
 | `autocommit config` | Edit settings interactively. `--show` prints them. |
 | `autocommit run` | Build a plan, create the commits, push. |
+| `autocommit activity` | Open issues and pull requests, review and merge them. |
 | `autocommit schedule` | Install the daily run. `--remove`, `--status`. |
 
 ### `run` options
@@ -179,6 +198,62 @@ represent it, and colors switch off when the output is piped. Set
 | `active_hour_start` / `active_hour_end` | `9` / `23` | Local-time window the commit timestamps fall into. |
 | `message_style` | `mixed` | `casual`, `conventional` or `mixed`. |
 | `author_name` / `author_email` | from your GitHub profile | Defaults to your `@users.noreply.github.com` address. |
+
+## Issues, pull requests and reviews
+
+The contribution graph counts more than commits: opening an issue, opening a
+pull request and submitting a review all show up. `autocommit activity` does
+those too.
+
+One round looks like this:
+
+1. Branch off the default branch as `autocommit/<word>-<date>-<n>`.
+2. Put one to three commits on it and push the branch.
+3. Open a pull request from that branch.
+4. Submit a review on it.
+5. Merge it and delete the branch.
+6. Open an issue or two, and close them again.
+
+```bash
+autocommit activity --dry-run          # show what a round would do
+autocommit activity --pulls 1 --issues 2
+autocommit activity --no-merge         # leave the pull requests open
+```
+
+In the console it is `/activity` (or `/activity dry` for a preview).
+
+**Read this part before turning it on:**
+
+- **Only repositories you own.** The tool checks that the target belongs to the
+  signed-in account and refuses otherwise. Automated issues and pull requests
+  in somebody else's project are spam, and that is not a line worth crossing
+  for a green square.
+- **None of it can be backdated.** GitHub stamps issues and pull requests when
+  they are created, so `--days 30` has no equivalent here — an activity round
+  only ever affects today.
+- **You cannot approve your own pull request.** GitHub rejects it, so reviews
+  are submitted as comments. A comment review on your own pull request may not
+  register as a contribution at all; commits, issues and opened pull requests
+  are the reliable part.
+- **It is visible.** These items sit in the Issues and Pull requests tabs with
+  obviously generated titles. A dedicated repository is the right place for it.
+
+To include the round in the daily scheduled run:
+
+```bash
+autocommit config              # or: /set activity_enabled true
+```
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `activity_enabled` | `false` | Whether `autocommit run` also does an activity round. `autocommit activity` runs regardless. |
+| `activity_chance` | `0.5` | Probability that a round does anything at all. |
+| `issues_min` / `issues_max` | `0` / `1` | Issues opened per round. |
+| `pulls_min` / `pulls_max` | `0` / `1` | Pull requests opened per round. |
+| `pull_commits_min` / `pull_commits_max` | `1` / `3` | Commits on each pull request branch. |
+| `review_pulls` | `true` | Submit a comment review on each pull request. |
+| `merge_pulls` | `true` | Merge the pull request and delete its branch. |
+| `close_issues` | `true` | Close each issue after opening it. |
 
 ## Scheduling
 
@@ -219,7 +294,9 @@ Getting this wrong is the usual reason the squares stay grey:
 5. **Backdating works**, because git records the author date and GitHub renders
    the graph from it. Commits dated in a previous year show up in that year's
    graph, not today's.
-6. The graph is cached; give it a few minutes.
+6. **Issues and opened pull requests count** in the repositories you own.
+   Reviews of your own pull requests are unreliable; see the section above.
+7. The graph is cached; give it a few minutes.
 
 `autocommit status` warns you about most of these.
 
@@ -244,18 +321,12 @@ folder, so a large repository does not cost you a full history download.
 python -m unittest discover -s tests -t . -v
 ```
 
-91 tests covering the planner, config, token handling, the GitHub client, the
-schedulers, console dispatch and panel rendering, plus a full end-to-end run —
-commit, push, re-clone and re-sync — against a local bare repository. Nothing
+116 tests covering the planner, config, token handling, the GitHub client, the
+schedulers, console dispatch and panel rendering, the ownership guard, and full
+end-to-end runs — commit, push, re-clone, re-sync, branch, pull request — against
+a local bare repository with a recording fake in place of the GitHub API. Nothing
 in the suite talks to github.com. CI runs the same suite on Ubuntu, Windows and
 macOS, on Python 3.9 and 3.13.
-
-## A note on what this is
-
-This inflates your own contribution graph with commits that are not real work.
-Anyone who clicks a green square sees a log file with one-line edits, so treat
-it as decoration, not as a portfolio. Point it at a repository you own, and
-don't use it against a repository somebody else relies on.
 
 ## License
 

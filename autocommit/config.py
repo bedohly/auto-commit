@@ -49,6 +49,20 @@ class Settings:
     message_style: str = "mixed"  # casual | conventional | mixed
     jitter_minutes: int = 0
 
+    # Issue / pull request / review automation. Off by default: unlike commits,
+    # these cannot be backdated and they are visible to anyone browsing the repo.
+    activity_enabled: bool = False
+    activity_chance: float = 0.5
+    issues_min: int = 0
+    issues_max: int = 1
+    pulls_min: int = 0
+    pulls_max: int = 1
+    pull_commits_min: int = 1
+    pull_commits_max: int = 3
+    review_pulls: bool = True
+    merge_pulls: bool = True
+    close_issues: bool = True
+
     def validate(self) -> None:
         if self.min_commits < 1:
             raise ValueError("min_commits must be at least 1")
@@ -70,6 +84,20 @@ class Settings:
             raise ValueError("message_style must be casual, conventional or mixed")
         if self.jitter_minutes < 0:
             raise ValueError("jitter_minutes cannot be negative")
+        for low, high in (("issues_min", "issues_max"),
+                          ("pulls_min", "pulls_max"),
+                          ("pull_commits_min", "pull_commits_max")):
+            low_value, high_value = getattr(self, low), getattr(self, high)
+            if low_value < 0:
+                raise ValueError("{0} cannot be negative".format(low))
+            if high_value < low_value:
+                raise ValueError("{0} must be greater than or equal to {1}".format(high, low))
+            if high_value > 20:
+                raise ValueError("{0} must be 20 or lower".format(high))
+        if self.pull_commits_min < 1:
+            raise ValueError("pull_commits_min must be at least 1")
+        if not 0.0 <= self.activity_chance <= 1.0:
+            raise ValueError("activity_chance must be between 0 and 1")
         if not self.commit_file or self.commit_file.startswith(("/", "\\")):
             raise ValueError("commit_file must be a relative path inside the repository")
         if ".." in Path(self.commit_file).parts:
@@ -104,6 +132,17 @@ EDITABLE = (
     "author_name",
     "author_email",
     "jitter_minutes",
+    "activity_enabled",
+    "activity_chance",
+    "issues_min",
+    "issues_max",
+    "pulls_min",
+    "pulls_max",
+    "pull_commits_min",
+    "pull_commits_max",
+    "review_pulls",
+    "merge_pulls",
+    "close_issues",
 )
 
 

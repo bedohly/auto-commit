@@ -170,6 +170,31 @@ class LocalRepo:
         self._git(["remote", "add", "origin", self.remote_url], check=False)
         return "initialized"
 
+    # -- branches ---------------------------------------------------------
+    def start_branch(self, name: str) -> None:
+        """Create (or reset) a working branch on top of the current HEAD."""
+        self._git(["checkout", "-B", name])
+
+    def switch(self, name: str) -> None:
+        self._git(["checkout", name])
+
+    def current_branch(self) -> str:
+        result = self._git(["rev-parse", "--abbrev-ref", "HEAD"], check=False)
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    def push_branch(self, name: str) -> str:
+        result = self._git(
+            ["push", "--force-with-lease", "origin", "HEAD:refs/heads/" + name],
+            check=False,
+            timeout=900,
+        )
+        if result.returncode != 0:
+            raise GitError(scrub(result.stderr.strip() or result.stdout.strip(), self.token))
+        return scrub((result.stderr or result.stdout).strip(), self.token)
+
+    def delete_local_branch(self, name: str) -> None:
+        self._git(["branch", "-D", name], check=False)
+
     def configure_identity(self, name: str, email: str) -> None:
         self._git(["config", "user.name", name])
         self._git(["config", "user.email", email])

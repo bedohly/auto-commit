@@ -89,6 +89,13 @@ def render_status(token: str = "") -> None:
     ui.field("window", "{0:02d}:00-{1:02d}:00 local {2} {3}".format(
         settings.active_hour_start, settings.active_hour_end, mid, settings.commit_file))
 
+    if settings.activity_enabled:
+        ui.field("activity", "issues {0}-{1} {2} pulls {3}-{4} {2} {5:.0%} of days".format(
+            settings.issues_min, settings.issues_max, mid,
+            settings.pulls_min, settings.pulls_max, settings.activity_chance), "ok")
+    else:
+        ui.field("activity", "off  " + ui.paint("/set activity_enabled true", "cyan"))
+
     state = schedule.status()
     ui.field("schedule", _describe_schedule(state), "ok" if state.installed else "warn")
 
@@ -141,6 +148,8 @@ class Console:
                        self.cmd_plan, ("preview",))
         self._register("run", "Create the commits and push them.", "/run [days]",
                        self.cmd_run)
+        self._register("activity", "Open issues and pull requests, and review them.",
+                       "/activity [dry]", self.cmd_activity, ("pr",))
         self._register("schedule", "Install the daily run.", "/schedule [HH:MM] [jitter]",
                        self.cmd_schedule)
         self._register("unschedule", "Remove the daily run.", "/unschedule",
@@ -397,7 +406,15 @@ class Console:
         _, _, days = self._range_from_args(args)
         cli.cmd_run(_ns(token=self.token, today=False, days=days, from_date="", to_date="",
                         seed=None, dry_run=False, no_push=False, jitter=0, yes=False,
-                        quiet=False, workdir=None, remote=""))
+                        quiet=False, workdir=None, remote="", activity=False,
+                        no_activity=False, issues=None, pulls=None, no_review=False,
+                        no_merge=False))
+
+    def cmd_activity(self, args):
+        dry = bool(args) and args[0].lower() in ("dry", "dry-run", "--dry-run", "preview")
+        cli.cmd_activity(_ns(token=self.token, issues=None, pulls=None, no_review=False,
+                             no_merge=False, seed=None, dry_run=dry, quiet=False,
+                             workdir=None, remote=""))
 
     def cmd_schedule(self, args):
         at = args[0] if args else ""

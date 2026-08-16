@@ -119,6 +119,60 @@ class GitHubClient:
         data, _ = self._request("POST", "/user/repos", payload)
         return _to_repo(data)
 
+    # -- issues, pull requests, reviews ------------------------------------
+    def create_issue(self, owner: str, name: str, title: str, body: str = "") -> int:
+        data, _ = self._request(
+            "POST", "/repos/{0}/{1}/issues".format(owner, name),
+            {"title": title, "body": body},
+        )
+        return int(data["number"])
+
+    def close_issue(self, owner: str, name: str, number: int) -> None:
+        self._request(
+            "PATCH", "/repos/{0}/{1}/issues/{2}".format(owner, name, number),
+            {"state": "closed", "state_reason": "completed"},
+        )
+
+    def create_pull(self, owner: str, name: str, title: str, head: str,
+                    base: str, body: str = "") -> int:
+        data, _ = self._request(
+            "POST", "/repos/{0}/{1}/pulls".format(owner, name),
+            {"title": title, "head": head, "base": base, "body": body},
+        )
+        return int(data["number"])
+
+    def create_review(self, owner: str, name: str, number: int, body: str,
+                      event: str = "COMMENT") -> None:
+        """Submit a review. GitHub rejects APPROVE on your own pull request."""
+        self._request(
+            "POST", "/repos/{0}/{1}/pulls/{2}/reviews".format(owner, name, number),
+            {"body": body, "event": event},
+        )
+
+    def merge_pull(self, owner: str, name: str, number: int,
+                   method: str = "squash") -> bool:
+        try:
+            self._request(
+                "PUT", "/repos/{0}/{1}/pulls/{2}/merge".format(owner, name, number),
+                {"merge_method": method},
+            )
+        except GitHubError as exc:
+            if exc.status in (405, 409):  # not mergeable yet, or already merged
+                return False
+            raise
+        return True
+
+    def delete_branch(self, owner: str, name: str, branch: str) -> bool:
+        try:
+            self._request(
+                "DELETE", "/repos/{0}/{1}/git/refs/heads/{2}".format(owner, name, branch)
+            )
+        except GitHubError as exc:
+            if exc.status in (404, 422):
+                return False
+            raise
+        return True
+
     def token_scopes(self):
         if not self.scopes:
             self._request("GET", "/user")

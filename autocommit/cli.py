@@ -9,7 +9,8 @@ import sys
 import time
 from datetime import date, datetime, timedelta
 
-from autocommit import __version__, auth, config, paths, planner, runner, schedule, ui
+from autocommit import (__version__, activity, auth, config, paths, planner, runner,
+                        schedule, ui)
 from autocommit.config import Settings
 from autocommit.github import GitHubClient, GitHubError
 from autocommit.gitrepo import GitError, git_version
@@ -386,6 +387,85 @@ def cmd_run(args) -> int:
             ui.warn("Not pushed (--no-push). Nothing reached GitHub.")
 
     runner.append_run_log(result, settings, datetime.now())
+
+    # Issues and pull requests only make sense against the real repository on
+    # github.com, so a local --remote or a --no-push run skips them.
+    wants_activity = settings.activity_enabled or args.activity
+    if wants_activity and not args.no_activity and not args.no_push and not args.remote:
+        ui.rule("activity")
+        _run_activity(settings, args, token=token)
+    return 0
+
+
+def _run_activity(settings: Settings, args, client=None, token: str = "") -> None:
+    """Shared by `autocommit activity` and the tail of `autocommit run`."""
+    rng = random.Random(args.seed) if getattr(args, "seed", None) is not None else random.Random()
+    plan = activity.build_plan(settings, rng)
+
+    for name, value in (("issues", getattr(args, "issues", None)),
+                        ("pulls", getattr(args, "pulls", None))):
+        if value is not None:
+            setattr(plan, name, value)
+    if getattr(args, "no_review", False):
+        plan.review = False
+    if getattr(args, "no_merge", False):
+        plan.merge = False
+    if plan.pulls and len(plan.pull_commits) != plan.pulls:
+        plan.pull_commits = [
+            rng.randint(settings.pull_commits_min, settings.pull_commits_max)
+            for _ in range(plan.pulls)
+        ]
+
+    if not args.quiet:
+        ui.info("Activity plan: {0}".format(plan.describe()))
+
+    if plan.is_empty:
+        return
+    if getattr(args, "dry_run", False):
+        if not args.quiet:
+            ui.info("Dry run: no issues or pull requests were created.")
+        return
+
+    if client is None:
+        client, _ = _client(args.token)
+    user = client.whoami()
+    try:
+        activity.guard_ownership(settings, user.login)
+    except activity.OwnershipError as exc:
+        raise CliError(str(exc))
+
+    if not token:
+        token = _token_info(args.token).value
+
+    def announce(text):
+        if not args.quiet:
+            ui.hint(text)
+
+    result = activity.execute(
+        settings=settings,
+        plan=plan,
+        client=client,
+        token=token,
+        workdir=getattr(args, "workdir", None),
+        remote_url=getattr(args, "remote", "") or "",
+        rng=rng,
+        on_event=announce,
+    )
+    if result.skipped and not args.quiet:
+        ui.warn(result.skipped)
+    if not args.quiet:
+        ui.ok("Opened {0} pull request(s) and {1} issue(s); {2} merged, {3} reviewed.".format(
+            len(result.pulls), len(result.issues), result.merged, result.reviews))
+
+
+def cmd_activity(args) -> int:
+    settings = config.load()
+    _require_repo(settings)
+    try:
+        settings.validate()
+    except ValueError as exc:
+        raise CliError(str(exc))
+    _run_activity(settings, args)
     return 0
 
 
@@ -451,6 +531,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="autocommit",
         description="Create randomized commits in a GitHub repository you own.",
+        epilog="Built as a teaching project. It fabricates activity on your own "
+               "account; use it at your own risk and only on repositories you own.",
     )
     parser.add_argument("--version", action="version", version="autocommit " + __version__)
     parser.add_argument("--token", default="", help="GitHub token to use for this call only")
@@ -501,7 +583,31 @@ def build_parser() -> argparse.ArgumentParser:
                      help="advanced: use this working copy instead of the cached one")
     run.add_argument("--remote", default="",
                      help="advanced: push to this URL instead of github.com")
-    run.set_defaults(func=cmd_run)
+    run.add_argument("--activity", action="store_true",
+                     help="also open issues and pull requests, ignoring the setting")
+    run.add_argument("--no-activity", action="store_true",
+                     help="skip the issue and pull request round for this call")
+    run.set_defaults(func=cmd_run, issues=None, pulls=None,
+                     no_review=False, no_merge=False)
+
+    act = sub.add_parser(
+        "activity",
+        help="open issues and pull requests, and review them",
+        description="Runs whether or not activity_enabled is set; that setting only "
+                    "controls whether `autocommit run` includes this round.",
+    )
+    act.add_argument("--issues", type=int, default=None, metavar="N",
+                     help="open exactly N issues instead of rolling for it")
+    act.add_argument("--pulls", type=int, default=None, metavar="N",
+                     help="open exactly N pull requests instead of rolling for it")
+    act.add_argument("--no-review", action="store_true", help="do not review the pull requests")
+    act.add_argument("--no-merge", action="store_true", help="leave the pull requests open")
+    act.add_argument("--seed", type=int, default=None, help="fixed random seed")
+    act.add_argument("--dry-run", action="store_true", help="show the plan, create nothing")
+    act.add_argument("--quiet", action="store_true", help="print nothing on success")
+    act.add_argument("--workdir", default=None, help="advanced: use this working copy")
+    act.add_argument("--remote", default="", help="advanced: push branches to this URL")
+    act.set_defaults(func=cmd_activity)
 
     sched = sub.add_parser("schedule", help="install or remove the daily run")
     sched.add_argument("--at", default="", metavar="HH:MM", help="local start time")
