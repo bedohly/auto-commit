@@ -92,6 +92,60 @@ class Settings:
         return settings
 
 
+EDITABLE = (
+    "commit_file",
+    "min_commits",
+    "max_commits",
+    "weekday_active_chance",
+    "weekend_active_chance",
+    "active_hour_start",
+    "active_hour_end",
+    "message_style",
+    "author_name",
+    "author_email",
+    "jitter_minutes",
+)
+
+
+def coerce(current, raw: str):
+    """Convert a string from the console into the type the field already has."""
+    if isinstance(current, bool):
+        lowered = raw.strip().lower()
+        if lowered in ("1", "true", "yes", "on"):
+            return True
+        if lowered in ("0", "false", "no", "off"):
+            return False
+        raise ValueError("Expected true or false, got '{0}'.".format(raw))
+    if isinstance(current, int):
+        try:
+            return int(raw)
+        except ValueError:
+            raise ValueError("Expected a whole number, got '{0}'.".format(raw))
+    if isinstance(current, float):
+        try:
+            return float(raw)
+        except ValueError:
+            raise ValueError("Expected a number, got '{0}'.".format(raw))
+    return raw
+
+
+def apply_setting(settings: Settings, key: str, raw: str) -> Settings:
+    """Set one editable field, validating the result before returning."""
+    key = key.strip().lower()
+    if key not in EDITABLE:
+        raise ValueError(
+            "Unknown setting '{0}'. Editable settings: {1}".format(key, ", ".join(EDITABLE))
+        )
+    previous = getattr(settings, key)
+    setattr(settings, key, coerce(previous, raw))
+    try:
+        settings.validate()
+    except ValueError:
+        setattr(settings, key, previous)
+        raise
+    return settings
+
+
 def load() -> Settings:
     path = paths.config_file()
     if not path.exists():

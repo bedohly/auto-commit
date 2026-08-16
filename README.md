@@ -12,15 +12,24 @@ line to a log file and commits it a few times a day. Days are picked at random,
 so the result is not a perfectly uniform block of green.
 
 ```
-:: PLAN  2026-08-01 -> 2026-08-14
-   2026-08-01    3  ###
-   2026-08-02    1  #
-   2026-08-04    5  #####
-   2026-08-05    2  ##
-   ...
-   28 commits across 11 active day(s) out of 14
+╭────────────────────────────────────────────────────────────╮
+│  AUTOCOMMIT                                        v1.1.0  │
+╰────────────────────────────────────────────────────────────╯
+  account      ● bedohly  (github cli)
+  repository   ● bedohly/activity-log  branch main
+  author       ● Bedo <219016287+bedohly@users.noreply.github.com>
+  cadence        1-6 commits/day · weekdays 85% · weekends 45%
+  window         09:00-23:00 local · activity.md
+  schedule     ● daily 20:00 (+90m) via schtasks
+  last run     ● 2026-08-16 20:41 · commits 4 · days 1 · pushed yes
+
+   Type /help for commands, /setup to configure everything, /quit to leave.
+
+autocommit ›
 ```
 
+- **A console, not just flags.** Slash commands with a live status panel,
+  tab completion and history — or plain subcommands when you are scripting.
 - **No dependencies.** Python standard library only.
 - **One codebase, three platforms.** Task Scheduler on Windows, systemd timers
   or cron on Linux and macOS.
@@ -76,6 +85,18 @@ from the cloned folder works too.
 
 ## Quick start
 
+Run `autocommit` with no arguments and let the console walk you through it:
+
+```
+autocommit › /setup
+```
+
+`/setup` signs you in, picks or creates the target repository, walks the
+settings and offers to install the daily schedule — four steps, then you are
+done.
+
+Or drive it with subcommands, which is what you want in scripts:
+
 ```bash
 autocommit login                      # sign in (or reuse the gh CLI login)
 autocommit select                     # pick or create the target repository
@@ -84,13 +105,43 @@ autocommit run                        # commit and push today's batch
 autocommit schedule --at 20:00 --jitter 90
 ```
 
-Running `autocommit` with no arguments opens an interactive menu with the same
-actions.
+## The console
+
+`autocommit` (or `autocommit console`) opens a slash-command shell. It prints
+the status panel above on entry and after every `/clear`, so you always know
+what is configured.
+
+| Command | What it does |
+|---|---|
+| `/help` | Every command, with aliases. |
+| `/status` | The status panel. |
+| `/check` | Live verification: token, scopes, push access, fork, default branch, author email. |
+| `/setup` | Guided four-step setup. |
+| `/login` · `/logout` | Sign in, or forget the saved token. |
+| `/repos` | List repositories you can push to. |
+| `/select [owner/repo]` | Pick the target. No argument opens a numbered picker. |
+| `/new <name> [--public]` | Create a repository and select it. |
+| `/config` · `/set <key> <value>` | Show settings, change one. |
+| `/plan [days]` | Preview a plan without committing. |
+| `/run [days]` | Create the commits and push. |
+| `/schedule [HH:MM] [jitter]` · `/unschedule` | Manage the daily run. |
+| `/log [count]` | Recent runs. |
+| `/clear` · `/quit` | Redraw, or leave. |
+
+The leading slash is optional (`status` works too), aliases are short
+(`/st`, `/q`, `/cls`), and a typo gets a suggestion rather than an error dump.
+On Linux and macOS `readline` gives you tab completion and history; on Windows
+the console host provides its own line editing.
+
+Box drawing falls back to ASCII automatically when the console encoding cannot
+represent it, and colors switch off when the output is piped. Set
+`AUTOCOMMIT_ASCII=1` to force the plain look, `NO_COLOR=1` to drop colors.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
+| `autocommit` / `autocommit console` | Open the interactive console. |
 | `autocommit login` | Verify a token and save it. `--token-only` skips the `gh` CLI. |
 | `autocommit logout` | Delete the saved token. |
 | `autocommit status` | Token, repository, settings, schedule and health checks. |
@@ -193,10 +244,11 @@ folder, so a large repository does not cost you a full history download.
 python -m unittest discover -s tests -t . -v
 ```
 
-62 tests covering the planner, config, token handling, the GitHub client, the
-schedulers, and a full end-to-end run — commit, push, re-clone and re-sync —
-against a local bare repository. Nothing in the suite talks to github.com. CI
-runs the same suite on Ubuntu, Windows and macOS.
+91 tests covering the planner, config, token handling, the GitHub client, the
+schedulers, console dispatch and panel rendering, plus a full end-to-end run —
+commit, push, re-clone and re-sync — against a local bare repository. Nothing
+in the suite talks to github.com. CI runs the same suite on Ubuntu, Windows and
+macOS, on Python 3.9 and 3.13.
 
 ## A note on what this is
 

@@ -1,4 +1,4 @@
-"""Command line and interactive menu for autocommit."""
+"""Command line entry points for autocommit."""
 
 from __future__ import annotations
 
@@ -139,51 +139,16 @@ def cmd_logout(args) -> int:
 
 
 def cmd_status(args) -> int:
-    settings = config.load()
-    ui.banner("AUTOCOMMIT STATUS", "version {0}".format(__version__))
+    from autocommit import console  # imported late: console imports cli
+
+    console.render_status(args.token)
 
     try:
-        ui.info("git: {0}".format(git_version()))
+        ui.field("git", git_version().replace("git version ", ""), "ok")
     except GitError as exc:
-        ui.fail("git: {0}".format(exc))
-
-    info = auth.resolve(args.token)
-    if not info:
-        ui.warn("Account: not signed in (run 'autocommit login').")
-    else:
-        try:
-            user = GitHubClient(info.value).whoami()
-            ui.ok("Account: {0} (token from {1}, {2})".format(
-                user.login, info.source, info.masked()))
-        except GitHubError as exc:
-            ui.fail("Account: {0}".format(exc))
-
-    if settings.repo.is_set():
-        ui.ok("Repository: {0} (branch {1})".format(
-            settings.repo.full_name, settings.repo.branch))
-    else:
-        ui.warn("Repository: none selected (run 'autocommit select').")
-
-    ui.info("Author: {0} <{1}>".format(
-        settings.author_name or "-", settings.author_email or "-"))
-    ui.info("Commit file: {0}".format(settings.commit_file))
-    ui.info("Commits per active day: {0}-{1}".format(settings.min_commits, settings.max_commits))
-    ui.info("Active-day chance: weekdays {0:.0%}, weekends {1:.0%}".format(
-        settings.weekday_active_chance, settings.weekend_active_chance))
-    ui.info("Active hours: {0:02d}:00-{1:02d}:00 local time".format(
-        settings.active_hour_start, settings.active_hour_end))
-    ui.info("Message style: {0}".format(settings.message_style))
-
-    state = schedule.status()
-    if state.installed:
-        ui.ok("Schedule: installed via {0}".format(state.backend))
-        if state.detail:
-            ui.hint(state.detail)
-    else:
-        ui.warn("Schedule: not installed (run 'autocommit schedule').")
-
-    ui.info("Config file: {0}".format(paths.config_file()))
-    ui.info("Work directory: {0}".format(paths.repos_dir()))
+        ui.field("git", str(exc), "bad")
+    ui.field("config", str(paths.config_file()))
+    ui.field("workdir", str(paths.repos_dir()))
     return 0
 
 
@@ -480,47 +445,6 @@ def cmd_schedule(args) -> int:
 
 
 # ---------------------------------------------------------------------------
-# interactive menu
-# ---------------------------------------------------------------------------
-def _menu_run(defaults) -> int:
-    args = argparse.Namespace(**defaults)
-    args.days = ui.ask_int("How many days back should be filled? (1 = today only)", 1, 1, 1095)
-    args.dry_run = not ui.confirm("Create and push the commits now?", default=True)
-    return cmd_run(args)
-
-
-def run_menu(base) -> int:
-    entries = [
-        ("Sign in to GitHub", lambda: cmd_login(argparse.Namespace(token="", token_only=False))),
-        ("Select target repository", lambda: cmd_select(argparse.Namespace(
-            token=base.token, repository="", create="", public=False))),
-        ("Edit settings", lambda: cmd_config(argparse.Namespace(show=False))),
-        ("Preview / run now", lambda: _menu_run(dict(
-            token=base.token, days=1, from_date="", to_date="", seed=None, dry_run=False,
-            no_push=False, yes=True, quiet=False, jitter=0, workdir=None, remote=""))),
-        ("Schedule a daily run", lambda: cmd_schedule(argparse.Namespace(
-            at="", jitter=None, backend="auto", remove=False, status=False))),
-        ("Remove the schedule", lambda: cmd_schedule(argparse.Namespace(
-            at="", jitter=None, backend="auto", remove=True, status=False))),
-        ("Show status", lambda: cmd_status(argparse.Namespace(token=base.token))),
-    ]
-    while True:
-        ui.banner("AUTOCOMMIT", "randomized commits for a repository you own")
-        index = ui.choose("What do you want to do?", [label for label, _ in entries],
-                          allow_back=True)
-        if index is None:
-            ui.say("Bye.")
-            return 0
-        try:
-            entries[index][1]()
-        except (CliError, GitHubError, GitError, schedule.ScheduleError) as exc:
-            ui.fail(str(exc))
-        except KeyboardInterrupt:
-            ui.say()
-            ui.info("Cancelled.")
-
-
-# ---------------------------------------------------------------------------
 # argument parsing
 # ---------------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
@@ -589,8 +513,9 @@ def build_parser() -> argparse.ArgumentParser:
     sched.add_argument("--status", action="store_true", help="show the scheduled run")
     sched.set_defaults(func=cmd_schedule)
 
-    menu = sub.add_parser("menu", help="open the interactive menu")
-    menu.set_defaults(func=None)
+    console = sub.add_parser("console", aliases=["menu"],
+                             help="open the interactive slash-command console")
+    console.set_defaults(func=None)
 
     return parser
 
@@ -600,11 +525,19 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        if not args.command or args.command == "menu":
+        if args.command in ("console", "menu"):
+            from autocommit import console  # imported late: console imports cli
+
+            return console.start(args.token)
+        if not args.command:
+            # Bare `autocommit` opens the console, but only with a real terminal;
+            # piped or scripted use gets the help text instead.
             if not ui.is_interactive():
                 parser.print_help()
                 return 0
-            return run_menu(args)
+            from autocommit import console
+
+            return console.start(args.token)
         return args.func(args)
     except CliError as exc:
         ui.fail(str(exc))

@@ -1,8 +1,13 @@
-"""Small terminal helpers: colors, prompts and menus. All output is English."""
+"""Small terminal helpers: colors, prompts, panels and menus.
+
+Everything degrades on purpose: no colors when the output is piped, ASCII box
+drawing when the console cannot encode the Unicode set. All output is English.
+"""
 
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 
 _ANSI = {
@@ -46,6 +51,68 @@ def color_enabled() -> bool:
 _enable_windows_ansi()
 
 
+UNICODE_GLYPHS = {
+    "tl": "╭", "tr": "╮", "bl": "╰", "br": "╯",
+    "h": "─", "v": "│",
+    "dot": "●", "arrow": "›", "bar": "█", "mid": "·",
+}
+
+ASCII_GLYPHS = {
+    "tl": "+", "tr": "+", "bl": "+", "br": "+",
+    "h": "-", "v": "|",
+    "dot": "*", "arrow": ">", "bar": "#", "mid": "-",
+}
+
+_glyph_cache = {}
+
+
+def supports_unicode() -> bool:
+    """True when the console can actually print the box-drawing set."""
+    if os.environ.get("AUTOCOMMIT_ASCII"):
+        return False
+    encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+    probe = "".join(UNICODE_GLYPHS.values())
+    try:
+        probe.encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return False
+    return True
+
+
+def glyphs() -> dict:
+    if "value" not in _glyph_cache:
+        _glyph_cache["value"] = UNICODE_GLYPHS if supports_unicode() else ASCII_GLYPHS
+    return _glyph_cache["value"]
+
+
+def reset_glyph_cache() -> None:
+    """Only used by the tests, which flip encodings around."""
+    _glyph_cache.clear()
+
+
+def width(minimum: int = 56, maximum: int = 84) -> int:
+    try:
+        columns = shutil.get_terminal_size(fallback=(80, 24)).columns
+    except OSError:  # pragma: no cover - very unusual terminals
+        columns = 80
+    return max(minimum, min(maximum, columns - 2))
+
+
+def visible_length(text: str) -> int:
+    """Length of `text` once ANSI escape sequences are ignored."""
+    total, index = 0, 0
+    while index < len(text):
+        if text[index] == "\033":
+            end = text.find("m", index)
+            if end == -1:
+                break
+            index = end + 1
+            continue
+        total += 1
+        index += 1
+    return total
+
+
 def paint(text: str, *styles: str) -> str:
     if not styles or not color_enabled():
         return text
@@ -87,6 +154,49 @@ def banner(title: str, subtitle: str = "") -> None:
     print(paint(line, "magenta"))
 
 
+def box_title(left: str, right: str = "") -> None:
+    """A rounded header box with a left title and an optional right-hand tag."""
+    mark = glyphs()
+    inner = width() - 2
+    top = mark["tl"] + mark["h"] * inner + mark["tr"]
+    bottom = mark["bl"] + mark["h"] * inner + mark["br"]
+
+    left_text = "  " + left
+    right_text = right + "  "
+    gap = inner - len(left_text) - len(right_text)
+    if gap < 1:
+        right_text = ""
+        gap = max(1, inner - len(left_text))
+    body = "{0}{1}{2}{3}{4}".format(
+        mark["v"],
+        paint(left_text, "magenta", "bold"),
+        " " * gap,
+        paint(right_text, "grey"),
+        mark["v"],
+    )
+
+    print()
+    print(paint(top, "magenta"))
+    print(body)
+    print(paint(bottom, "magenta"))
+
+
+def dot(state: str) -> str:
+    """A status marker: 'ok', 'warn', 'bad' or 'off'."""
+    colors = {"ok": "green", "warn": "yellow", "bad": "red", "off": "grey"}
+    return paint(glyphs()["dot"], colors.get(state, "grey"))
+
+
+def field(label: str, value: str, state: str = "") -> None:
+    """One aligned 'label  <dot> value' row of a status panel."""
+    marker = (dot(state) + " ") if state else "  "
+    print("  {0}  {1}{2}".format(paint(label.ljust(11), "grey"), marker, value))
+
+
+def bullet(text: str, state: str = "off") -> None:
+    print("  {0} {1}".format(dot(state), text))
+
+
 def rule(label: str = "") -> None:
     if label:
         print(paint("-- {0} ".format(label).ljust(52, "-"), "grey"))
@@ -96,6 +206,14 @@ def rule(label: str = "") -> None:
 
 def is_interactive() -> bool:
     return bool(getattr(sys.stdin, "isatty", lambda: False)())
+
+
+def clear_screen() -> None:
+    if not color_enabled():
+        print()
+        return
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.flush()
 
 
 def ask(question: str, default: str = "") -> str:
